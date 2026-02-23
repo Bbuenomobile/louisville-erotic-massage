@@ -1,0 +1,16 @@
+{
+    "name": "Louisville Erotic massage",
+    "short_name": "Louisville Happy Ending Massage \ud83c\udf0d",
+    "description": "Find erotic massage spots in Louisville through our growing directory. Sessions start around 60 USD in areas like NuLu and the Highlands. Practical info for visitors.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#e91e63",
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        }
+    ]
+}

@@ -1,0 +1,848 @@
+---
+import Base from '../layouts/Base.astro';
+import ListingCard from '../components/ListingCard.astro';
+import InternalLinks from '../components/InternalLinks.astro';
+import OwnerCTA from '../components/OwnerCTA.astro';
+import CategoryNav from '../components/CategoryNav.astro';
+import NetworkLinks from '../components/NetworkLinks.astro';
+import GeoBanner from '../components/GeoBanner.astro';
+
+// Safe fetch helper for build-time API calls
+async function safeFetchJson(url: string): Promise<any[]> {
+    try {
+        console.log('Fetching:', url);
+        const res = await fetch(url, {
+            headers: { 
+                'Accept': 'application/json',
+                'User-Agent': 'ErotikMaps-Satellite-Builder/1.0',
+                'X-Satellite-Build': 'true'
+            }
+        });
+        
+        if (!res.ok) {
+            console.error('API returned ' + res.status + ': ' + res.statusText);
+            return [];
+        }
+        
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            console.error('Expected JSON but got: ' + ct);
+            return [];
+        }
+        
+        const data = await res.json();
+        return data.data || [];
+    } catch (error) {
+        console.error('Fetch failed:', error);
+        return [];
+    }
+}
+
+// Fetch listings from API at build time - with country fallback
+const cityApiUrl = 'https://www.erotikmaps.com/api/v1/satellite/listings?city=louisville&category=erotic-massage&limit=100';
+let listings = await safeFetchJson(cityApiUrl);
+let isCountryFallback = false;
+let fallbackLocation = 'Louisville';
+
+// If no listings in city, fallback to country (Gold + premium + 20 others max)
+if (listings.length === 0) {
+    const countryApiUrl = 'https://www.erotikmaps.com/api/v1/satellite/listings?country=united-states&category=erotic-massage&limit=200';
+    const allCountryListings = await safeFetchJson(countryApiUrl);
+    
+    if (allCountryListings.length > 0) {
+        // Keep ALL gold and premium listings
+        const goldOnes = allCountryListings.filter((l: any) => l.is_gold);
+        const premiumOnes = allCountryListings.filter((l: any) => l.is_premium && !l.is_gold);
+        // Non-premium: sort by ID (deterministic) and take max 20
+        const others = allCountryListings.filter((l: any) => !l.is_premium && !l.is_gold);
+        const selected = others.sort((a: any, b: any) => (a.id || 0) - (b.id || 0)).slice(0, 20);
+        // Merge: gold first, then premium, then selection
+        listings = [...goldOnes, ...premiumOnes, ...selected];
+    }
+    
+    isCountryFallback = true;
+    fallbackLocation = 'United States';
+}
+
+// Related categories mapping for cross-promotion
+const relatedCategories: Record<string, { slug: string; label: string; icon: string }[]> = {
+    'erotic-massage': [
+        { slug: 'gentlemens-club', label: "Gentlemen's Clubs", icon: '🥂' },
+        { slug: 'swinger-club', label: 'Swinger Clubs', icon: '💑' }
+    ],
+    'gentlemens-club': [
+        { slug: 'erotic-massage', label: 'Erotic Massage', icon: '💆' },
+        { slug: 'swinger-club', label: 'Swinger Clubs', icon: '💑' }
+    ],
+    'swinger-club': [
+        { slug: 'erotic-massage', label: 'Erotic Massage', icon: '💆' },
+        { slug: 'gentlemens-club', label: "Gentlemen's Clubs", icon: '🥂' }
+    ]
+};
+
+// Fetch related category listings - with country fallback
+const currentCategory = 'erotic-massage';
+const related = relatedCategories[currentCategory] || [];
+const relatedListings: { category: string; label: string; icon: string; listings: any[]; isCountry: boolean }[] = [];
+
+for (const rel of related) {
+    // Try city first
+    let relUrl = 'https://www.erotikmaps.com/api/v1/satellite/listings?city=louisville&category=' + rel.slug + '&limit=6';
+    let relData = await safeFetchJson(relUrl);
+    let isRelCountry = false;
+    
+    // Fallback to country if no city listings
+    if (relData.length === 0) {
+        relUrl = 'https://www.erotikmaps.com/api/v1/satellite/listings?country=united-states&category=' + rel.slug + '&limit=6';
+        relData = await safeFetchJson(relUrl);
+        isRelCountry = true;
+    }
+    
+    if (relData.length > 0) {
+        relatedListings.push({
+            category: rel.slug,
+            label: rel.label,
+            icon: rel.icon,
+            listings: relData.slice(0, 6),
+            isCountry: isRelCountry
+        });
+    }
+}
+
+const faq = [{"question":"Is English spoken at venues in Louisville?","answer":"Yes, English dominates at parlors and studios across Louisville, given its US location. Staff communicate clearly with tourists, handling bookings and sessions without issue. Use simple phrases like \"60-minute session please\" for smooth talks. Download Google Translate as backup for specifics. WhatsApp chats work great too; most places share numbers in our directory. This setup eases visits for everyone. Our verified listings confirm reliable English proficiency. (82 words)"},{"question":"How much does a session cost in Louisville?","answer":"Contact venues for current pricing, as rates shift with demand. Expect $80-400 USD based on duration and service type, like 45 minutes to 90 minutes. Midweek afternoons often bring better deals around $150. Premium spots near downtown push higher ends. Check our growing directory for listed ranges. Factor in tips separately. Always confirm totals upfront to stay clear. (78 words)"},{"question":"What etiquette should I follow in Louisville?","answer":"Arrive on time at Louisville spas; punctuality shows respect. Shower fresh before sessions, a standard hygiene must. Tip 20% in cash at the end, say $30 on a $150 service. Speak politely during consults to set clear boundaries. Silence phones for focus. Dress casually for entry. Our directory notes spots with clear rules. Follow these for positive repeats. (76 words)"},{"question":"Are these venues safe for first-time visitors?","answer":"Louisville establishments prioritize safety with verified listings in our new directory. Public-facing salons near highways like I-264 reduce risks. Meet staff at front desks first. Share your location with a friend via phone. Stick to lit areas post-session. Common US precautions apply: trust instincts, avoid overdrinking before. Reviews in our growing listings guide choices. Most spots welcome beginners safely. (79 words)"},{"question":"What does a typical session look like in Louisville?","answer":"You arrive at a Louisville studio, check in briefly at reception. A quick consult sets your preferences, usually 5 minutes. The session flows relaxed over 60-90 minutes in private rooms. Soft lighting and music create calm. It wraps with time to refresh. Staff guide smoothly. Our directory describes general setups. Expect professional handling throughout. (72 words)"},{"question":"What should I do if I have a bad experience?","answer":"Speak directly to the salon manager on-site for quick fixes. Contact our directory support via email or form right after; we verify listings. Leave honest feedback in reviews to help others. Note specifics like time and staff name. In rare escalations, Louisville police non-emergency line at 502-574-7111 assists. Our growing directory acts fast on reports. This keeps standards high. (80 words)"}];
+const canonicalUrl = 'https://happyendingmassagelouisville.top/';
+
+// HTML content from AI (stored as variables for set:html)
+const introHtml = `<p>Louisville sits on the Ohio River, where bridges connect Kentucky to Indiana. Walk along the waterfront on a mild spring day, and you feel the steady flow of the river mixing with urban energy. The air carries a hint of bourbon from nearby distilleries. Neighborhoods like NuLu offer converted warehouses turned into cafes and shops. Summers bring humid heat, winters stay chilly but rarely bury the city in snow. Locals move at a relaxed pace, chatting on porches or gathering at Churchill Downs. This town blends Southern hospitality with a gritty edge. You sense it in the streets around Whiskey Row, where history lingers in brick facades.</p><h2>Louisville's Emerging Erotic Massage Options</h2><p>Erotic massage in Louisville operates discreetly, often through independent providers or small studios. Providers keep a low profile to respect local norms, yet the scene grows steadily. Our directory lists a handful of spots now, with new entries added weekly. Check places in NuLu or the Highlands for convenience. These areas draw visitors for their walkable vibe and nearby eateries. Sessions focus on sensual touch, blending relaxation with intimate elements. You contact via WhatsApp or phone for privacy. Expect straightforward communication about availability. The market caters to locals and travelers alike, emphasizing comfort in private settings. Prices hover between <strong>60-150 USD</strong> for an hour, depending on the provider.</p><p>Services range from light sensual rubs to fuller body experiences. Some spots offer Nuru gel sessions, others stick to oil-based full-body work. Local culture shapes this with a touch of Kentucky warmth; providers often chat casually to ease newcomers. Bourbon Country influence shows in the laid-back approach, less rushed than bigger cities. You find variety in techniques, from tantric styles to straightforward erotic relief. What sets Louisville apart lies in the personal touch. Many providers build repeat clients through word-of-mouth. Our listings highlight verified info, helping you pick based on reviews and photos.</p><h2>Steps to Book and Flow of a Louisville Session</h2><p>Booking starts with a quick message on WhatsApp, the top choice here for its speed and encryption. Send your preferred date, time, and session length. Providers reply within an hour usually. Phone calls work too, but texts keep things casual. Walk-ins happen rarely; call ahead. Most operate from 10 AM to midnight, some later on weekends. Arrive at a discreet address, often apartments or small parlors. You pay upfront in cash, USD only. A session flows like this: greet the provider, shower if offered, then settle into a dimly lit room with soft music. Relax on the table as hands work tension away.</p><p>First visits last 60 minutes typically. Atmosphere stays calm, with candles or low lights creating intimacy. Interaction builds gradually; start with chit-chat, move to touch. Providers guide the pace, respecting boundaries. You leave refreshed, often with a smile. Repeat visits unlock extras based on rapport.</p><h2>Staying Safe and Polite in US Erotic Spots</h2><p>In the United States, safety means choosing spots with good reviews and clear contact info. Pay in <strong>USD cash</strong> upfront, tip 10-20% extra for great service. English rules everywhere, no language hurdles. Spot reputable places by professional photos and prompt replies. Avoid anywhere pushing extras aggressively. Respect rules: no photos, arrive clean, be direct about wants. Leave quietly to keep discretion. If issues arise, note license plates or addresses. Tipping shows appreciation; skip it only if service disappoints. Always confirm session details beforehand to match expectations.</p><h2>Louisville's Unique Twist on Sensual Relief</h2><p>Louisville differs with its river-town ease. Providers often share local tips, like nearby bourbon bars, turning sessions into friendly encounters. The Derby City vibe adds playfulness; expect horse racing banter mid-massage. Smaller scale means fewer crowds, more attention. Proximity to the airport makes it ideal for quick visits. Locals treat this as casual stress relief amid bluegrass life.</p>
+
+<h2>Navigating Louisville: Rides, Walks, and Key Areas</h2><p>Uber and Lyft dominate rides here, cheap and reliable from the airport to downtown. TARC buses cover basics for under 2 USD, though tourists stick to apps. Walking shines in NuLu or Highlands; streets feel safe day or night with steady foot traffic. Crime stays low in visitor zones, just watch bags in crowds. Rideshares cost 10-20 USD across town. Weather swings: humid summers hit 90F, winters dip to 30F with occasional ice. Pack layers. Focus on East Market (NuLu) for trendy spots, Highlands for bars, and Russell for edgier vibes.</p><p>USD rules; cards work most places, but carry cash for small parlors or tips. English is universal, spoken clearly by all. First-timers, download Uber ahead and note addresses precisely; GPS can glitch near the river. Tip drivers 15%, servers 20%. Locals love small talk; ask about the Derby to break ice. ATMs abound, avoid exchanges.</p>
+
+<h2>First-Timer's Path: From Contact to Close</h2><p>Step one: scan our directory listings, pick one with solid photos and services. Message via WhatsApp with date, time, duration, like 'Available Friday 8pm for 60min?'. Include age verification if asked. Replies come fast, often minutes. Confirm address and price, say <strong>80 USD</strong>. Walk-ins scarce; book ahead. Sessions run 45-90 minutes, 60 standard. Pay cash on arrival, no cards usually.</p><p>Enter, meet your provider in a cozy setup. Quick greet, optional shower, then table time. Discuss flow briefly: full body, focus areas. Hands glide with oil, building sensual tension. End with relaxation wrap-up. Tip in hand, 10-20 USD. Chat in English throughout. Leave review on the listing page to help others.</p>`;
+const bottomHtml = `<h2>Dive into Louisville Erotic Massage Listings Now</h2><p>Our directory grows fast with fresh spots weekly. Each entry packs photos, WhatsApp numbers, phone options, and service breakdowns. Browse NuLu providers for central access or Highlands for variety. WhatsApp connects quickest; expect replies same day. Listings note hours, prices from <strong>60 USD</strong>, and specialties like Nuru or tantra. Filter by neighborhood to match your stay.</p><p>Visit evenings when energy peaks. Check reviews and recent updates on pages. Verify contact responsiveness before committing. Arrive sober, respectful. This keeps things smooth. Enjoy the release; Louisville delivers genuine unwind.</p>`;
+
+// Split listings for different sections
+const premiumListings = listings.filter((l: any) => l.is_premium);
+const goldListings = listings.filter((l: any) => l.is_gold);
+const regularListings = listings.filter((l: any) => !l.is_premium);
+
+// Get top 5 listings for hero slider (Gold first, then Premium)
+const heroListings = [...goldListings, ...premiumListings.filter((l: any) => !l.is_gold), ...regularListings]
+    .filter((l: any) => l.thumbnail)
+    .slice(0, 5);
+---
+
+<Base 
+    title="Louisville Erotic Massage Scene Guide"
+    description="Find erotic massage spots in Louisville through our growing directory. Sessions start around 60 USD in areas like NuLu and the Highlands. Practical info for visitors."
+    canonical={canonicalUrl}
+    image={heroListings.length > 0 ? heroListings[0].thumbnail : 'https://erotikmaps.com/images/og-default.jpg'}
+>
+    <!-- Compact Hero Section -->
+    <section class="hero-compact">
+        <div class="container">
+            <h1>Erotic Massage in Louisville: A Local&#039;s Practical Rundown</h1>
+            <p class="hero-subtitle">{listings.length > 0 ? listings.length + ' verified listings' : 'Directory growing'} {isCountryFallback ? 'in ' + 'United States' : 'in ' + 'Louisville'}</p>
+            <div class="hero-badges">
+                {goldListings.length > 0 && <span class="badge-stat gold">⭐ {goldListings.length} Gold</span>}
+                {premiumListings.length > 0 && <span class="badge-stat premium">✨ {premiumListings.length} Silver</span>}
+            </div>
+            <p class="last-updated">📅 Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+        </div>
+    </section>
+    
+    <!-- GeoBanner - HIGH on page, right after hero -->
+    <div class="home-banner-slot top-banner">
+        <div class="container">
+            <GeoBanner />
+        </div>
+    </div>
+    
+    <!-- Listings Grid - Mobile First -->
+    <section class="listings" id="all-listings">
+        <div class="container">
+            <div class="listings-header">
+                <h2><span class="heading-icon" aria-hidden="true">🏢</span> Best Erotic Massage in Louisville</h2>
+                {isCountryFallback ? (
+                    <p class="listings-intro fallback-notice">
+                        📍 Our Louisville directory is growing. In the meantime, here are {listings.length} verified listings from United States you may find interesting.
+                    </p>
+                ) : (
+                    <p class="listings-intro">
+                        {listings.length > 0 
+                            ? `Browse ${listings.length} verified erotic massage listings in Louisville. Gold and Silver listings appear first.`
+                            : `We are building our erotic massage directory for Louisville. New listings are added regularly.`
+                        }
+                    </p>
+                )}
+            </div>
+            <div class="listings-grid-3">
+                {listings.map((listing: any) => (
+                    <ListingCard listing={listing} />
+                ))}
+            </div>
+            
+            {listings.length === 0 && (
+                <div class="no-listings">
+                    <p>We are currently building our directory for Louisville. New listings are added regularly.</p>
+                    <p>Own a erotic massage business in Louisville? <a href="/advertise">Add your listing for free</a> and be among the first to appear here.</p>
+                </div>
+            )}
+        </div>
+    </section>
+    
+    <!-- Related Categories - Cross-promotion -->
+    {relatedListings.length > 0 && (
+        <section class="related-categories" id="related-venues">
+            <div class="container">
+                <h2><span class="heading-icon" aria-hidden="true">🔥</span> More Adult Entertainment Near Louisville</h2>
+                <p class="section-intro">Discover other adult venues in United States</p>
+                
+                {relatedListings.map((cat) => (
+                    <div class="related-category-block">
+                        <h3>{cat.icon} {cat.label} {cat.isCountry ? 'in ' + 'United States' : 'Near ' + 'Louisville'}</h3>
+                        <div class="listings-grid-3">
+                            {cat.listings.map((listing: any) => (
+                                <ListingCard listing={listing} />
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </section>
+    )}
+    
+    <!-- About Section -->
+    <section class="about-section" id="about">
+        <div class="container">
+            <h2><span class="heading-icon" aria-hidden="true">📖</span> About Erotic Massage in Louisville</h2>
+            <div class="about-content" set:html={introHtml} />
+        </div>
+    </section>
+    
+    <!-- Category Navigation -->
+    <CategoryNav city="Louisville" mainCategory="erotic-massage" />
+    
+    <!-- Table of Contents - SEO Navigation (lower on page) -->
+    <nav class="toc-section" aria-label="Page contents" id="navigation">
+        <div class="container">
+            <details open>
+                <summary class="toc-title">📑 Quick Navigation</summary>
+                <ul class="toc-list">
+                    <li><a href="#all-listings">🏢 {listings.length > 0 ? `All ${listings.length} Listings` : 'Browse Listings'}</a></li>
+                    <li><a href="#about">📖 About Erotic Massage</a></li>
+                    <li><a href="#categories">🏷️ Venue Types</a></li>
+                    {faq && faq.length > 0 && <li><a href="#faq">❓ FAQ ({faq.length} questions)</a></li>}
+                    <li><a href="#local-guide">🗺️ Local Guide</a></li>
+                    <li><a href="#pricing">💰 Pricing Guide</a></li>
+                </ul>
+            </details>
+        </div>
+    </nav>
+    
+    <!-- Network Links - Links to other satellite sites -->
+    <NetworkLinks currentCity="Louisville" currentCountry="United States" category="erotic-massage" />
+    
+    <!-- Internal Links Section -->
+    <InternalLinks city="Louisville" country="United States" category="Erotic Massage" />
+    
+    <!-- Owner CTA Section - Encourage venue owners to create listings -->
+    <OwnerCTA city="Louisville" country="United States" category="Erotic Massage" />
+    
+    <!-- FAQ Section -->
+    {faq && faq.length > 0 && (
+        <section class="faq" id="faq">
+            <div class="container">
+                <h2>Frequently Asked Questions about Erotic Massage in Louisville</h2>
+                <div class="faq-list">
+                    {faq.map((item: any, index: number) => (
+                        <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+                            <h3 itemprop="name">{item.question}</h3>
+                            <div itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+                                <div itemprop="text" set:html={item.answer} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </section>
+    )}
+    
+    <!-- Local Guide Section - AI-Generated Unique SEO Content -->
+    <section class="local-guide" id="local-guide">
+        <div class="container">
+            <h2><span class="heading-icon" aria-hidden="true">🗺️</span> Erotic Massage Guide for Louisville</h2>
+            <div class="guide-grid">
+                <div class="guide-card">
+                    <h3><span class="heading-icon" aria-hidden="true">🏙️</span> Where to Find Venues</h3>
+                    <p>{`<h2>Key Neighborhoods for Spas and Studios</h2>Look for erotic massage spots in <strong>Louisville</strong>'s east side areas around Jeffersontown or near the airport zone. Those commercial stretches off I-264 hold several discreet parlors. Downtown spots cluster close to Whiskey Row, where visitors blend in easily. Tourist zones by the Ohio River also feature a few salons tucked into office buildings. Our directory is growing fast with new listings in these practical locations. Stick to well-lit strips for comfort.<h2>Finding Addresses Confidently</h2>Parishes near the University of Louisville campus draw regulars too. Search our emerging listings to pinpoint exact addresses. These areas balance privacy with access to highways. First-timers find east end practices straightforward to reach. (128 words)`}</p>
+                </div>
+                <div class="guide-card">
+                    <h3><span class="heading-icon" aria-hidden="true">⏰</span> When to Visit</h3>
+                    <p>{`<h2>Weekday Patterns and Peak Hours</h2>Head to studios in <strong>Louisville</strong> midweek afternoons, say 2pm to 5pm, when crowds thin out. Avoid rush hours from 5pm to 7pm on weekdays; traffic clogs I-65. Salons stay open until 10pm or later most nights. Weekends bring busier evenings, so arrive before 8pm for smoother entry.<h2>Planning for Walk-Ins or Reservations</h2>Saturday early evenings suit beginners best, with staff less rushed. Book ahead via WhatsApp for Friday or Saturday nights. Walk-ins work fine on Tuesdays through Thursdays. Our new directory highlights places open past midnight on weekends. Check specific hours as they vary by spot. (132 words)`}</p>
+                </div>
+                <div class="guide-card">
+                    <h3><span class="heading-icon" aria-hidden="true">💳</span> Payment Info</h3>
+                    <p>{`<h2>Cash Preferences and Denominations</h2>In <strong>Louisville</strong>, carry twenties and fifties in USD for parlors; most prefer cash over cards. Studios rarely take plastic to keep things simple. ATMs sit outside banks and gas stations, but watch for $3 fees from out-of-network machines. Tip 20% on top, handed discreetly at session end.<h2>Tipping and Bargaining Realities</h2>Negotiation happens rarely here; posted rates stick firm. Practices near downtown accept cards more often, but confirm first. Stock small bills from convenience store machines if needed. This setup keeps transactions quick and low-key. (118 words)`}</p>
+                </div>
+                <div class="guide-card">
+                    <h3><span class="heading-icon" aria-hidden="true">🌐</span> Language Tips</h3>
+                    <p>{`<h2>English as the Main Language</h2>Staff at <strong>Louisville</strong> spas speak solid English, matching the city's US base. No big barriers exist for visitors. Basic phrases help: "Hello, do you have openings?" (heh-LOH, doo yuh hav OH-puhngz?). "How much for 60 minutes?" (how muhch for SIK-stee MIN-its?). "Thank you, that was great" (thank YEW, that wuz grayt).<h2>Apps and Direct Chats</h2>Say "Can I book now?" (kan eye book now?). Or "Water please" (WAH-ter pleez). Use Google Translate for extras. WhatsApp bridges any gaps; most spots list numbers in our growing directory. Conversations flow naturally in person. (124 words)`}</p>
+                </div>
+            </div>
+            <div class="guide-tips">
+                <h3><span class="heading-icon" aria-hidden="true">💡</span> Tips for First-Time Visitors</h3>
+                <ul>
+                    <li>✓ Contact the venue directly to confirm they are open before visiting</li>
+                    <li>✓ Check our listings for services offered, photos, and pricing</li>
+                    <li>✓ Look for Gold ⭐ and Silver ✨ badges for verified establishments</li>
+                    <li>✓ Book in advance during evenings and weekends for the best availability</li>
+                    <li>✓ Respect the venue's rules, staff, and other guests</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Pricing Guide Section - AI-Generated Unique Content -->
+    <section class="pricing-guide" id="pricing">
+        <div class="container">
+            <h2><span class="heading-icon" aria-hidden="true">💰</span> Erotic Massage Pricing in Louisville</h2>
+            <p class="pricing-intro">Prices for Erotic Massage services in Louisville depend on the venue, service type, and duration.</p>
+            <div class="pricing-table">
+                <div class="price-tier">
+                    <span class="tier-label">Budget</span>
+                    <span class="tier-range">{`Budget options start at $80-120 USD for 45-60 minutes.`}</span>
+                    <p>Smaller or newer venues. Suitable for first-time visitors looking to try the experience.</p>
+                </div>
+                <div class="price-tier featured">
+                    <span class="tier-label">⭐ Mid-Range</span>
+                    <span class="tier-range">{`Mid-tier sessions run $150-220 USD for full hour experiences.`}</span>
+                    <p>Established venues with good reviews. The most popular choice among visitors.</p>
+                </div>
+                <div class="price-tier">
+                    <span class="tier-label">✨ High-End</span>
+                    <span class="tier-range">{`Premium packages hit $250-400 USD for extended luxury sessions.`}</span>
+                    <p>Top-rated Gold and Silver establishments with extended services and quality amenities.</p>
+                </div>
+            </div>
+            <p class="pricing-note">💡 <strong>Tip:</strong> {`Rates in Louisville climb on weekends or for longer durations like 90 minutes. Downtown locations charge more than east side spots. Book midweek for lower prices. Stick to listed times to avoid upcharges. Watch for add-on fees on extras, rare but possible in busier salons.`}</p>
+        </div>
+    </section>
+    
+    <!-- Bottom Section / Call to Action -->
+    <section class="bottom-content">
+        <div class="container">
+            <div class="bottom-content-text" set:html={bottomHtml} />
+            
+            <div class="cta-box">
+                <h3>Looking for something specific?</h3>
+                <p>{listings.length > 0 ? `Browse our ${listings.length} listings above, or click on any listing for photos and contact info.` : 'Check back soon as we add new listings to this directory regularly.'}</p>
+                <a href="#all-listings" class="btn-primary">Browse All Listings</a>
+            </div>
+        </div>
+    </section>
+    
+    
+    <!-- Schema.org - ItemList -->
+    <script type="application/ld+json" set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "Louisville Erotic Massage Scene Guide",
+        "description": "Find erotic massage spots in Louisville through our growing directory. Sessions start around 60 USD in areas like NuLu and the Highlands. Practical info for visitors.",
+        "url": canonicalUrl,
+        "numberOfItems": listings.length,
+        "itemListElement": listings.map((listing: any, index: number) => ({
+            "@type": "ListItem",
+            "position": index + 1,
+            "item": {
+                "@type": "LocalBusiness",
+                "name": listing.name,
+                "url": `https://happyendingmassagelouisville.top/${listing.slug}`,
+                "image": listing.thumbnail,
+                "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": "Louisville",
+                    "addressCountry": "United States"
+                }
+            }
+        }))
+    })}></script>
+    
+    <!-- Schema.org - FAQPage -->
+    {faq && faq.length > 0 && (
+        <script type="application/ld+json" set:html={JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": faq.map((item: any) => ({
+                "@type": "Question",
+                "name": item.question,
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": item.answer
+                }
+            }))
+        })}></script>
+    )}
+    
+    <!-- Schema.org - WebPage -->
+    <script type="application/ld+json" set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": "Louisville Erotic Massage Scene Guide",
+        "description": "Find erotic massage spots in Louisville through our growing directory. Sessions start around 60 USD in areas like NuLu and the Highlands. Practical info for visitors.",
+        "url": canonicalUrl,
+        "isPartOf": {
+            "@type": "WebSite",
+            "name": "Louisville Happy Ending Massage 🌍",
+            "url": "https://happyendingmassagelouisville.top"
+        },
+        "about": {
+            "@type": "Thing",
+            "name": "Erotic Massage in Louisville"
+        },
+        "breadcrumb": {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": 1,
+                    "name": "Home",
+                    "item": "https://happyendingmassagelouisville.top"
+                }
+            ]
+        }
+    })}></script>
+    
+    <!-- Sticky CTA Footer for Live Cams -->
+    <a href="https://erotiklive.net/" target="_blank" rel="nofollow noopener" class="live-cta-sticky">
+        <span class="live-dot"></span>
+        <span class="live-text">Watch Girls Online</span>
+    </a>
+</Base>
+
+<style>
+    /* Sticky Live CTA Footer - Full Width */
+    .live-cta-sticky {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 18px 24px;
+        background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);
+        color: white;
+        font-weight: 700;
+        font-size: 1.1rem;
+        text-decoration: none;
+        box-shadow: 
+            0 -4px 20px rgba(236, 72, 153, 0.4),
+            0 -2px 10px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .live-cta-sticky:hover {
+        background: linear-gradient(135deg, #db2777 0%, #e11d48 100%);
+    }
+    
+    .live-dot {
+        width: 14px;
+        height: 14px;
+        background: #22c55e;
+        border-radius: 50%;
+        animation: pulseDot 1.5s infinite;
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.9);
+    }
+    
+    .live-text {
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
+    
+    @keyframes pulseDot {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.3); opacity: 0.85; }
+    }
+    
+    @media (max-width: 600px) {
+        .live-cta-sticky {
+            padding: 16px 20px;
+            font-size: 1rem;
+        }
+    }
+    
+    /* Compact Hero */
+    .hero-compact {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 30px 0;
+        text-align: center;
+    }
+    .hero-compact h1 {
+        font-size: clamp(1.4rem, 4vw, 2rem);
+        margin-bottom: 8px;
+        font-weight: 700;
+    }
+    .hero-compact .hero-subtitle {
+        font-size: 0.95rem;
+        opacity: 0.9;
+        margin-bottom: 12px;
+    }
+    
+    /* Decorative emoji icons - hidden from SEO crawlers */
+    .heading-icon {
+        display: inline-block;
+        margin-right: 4px;
+        font-style: normal;
+    }
+    
+    .hero-badges {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .badge-stat {
+        background: rgba(255,255,255,0.2);
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .badge-stat.gold { background: rgba(255,215,0,0.3); }
+    .badge-stat.premium { background: rgba(255,255,255,0.25); }
+    .last-updated {
+        font-size: 0.8rem;
+        opacity: 0.7;
+        margin-top: 12px;
+    }
+    
+    /* Table of Contents */
+    .toc-section {
+        background: var(--card-bg);
+        padding: 20px 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .toc-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .toc-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 24px;
+        list-style: none;
+        padding: 16px 0 0;
+        margin: 0;
+    }
+    .toc-list li a {
+        font-size: 0.9rem;
+        color: var(--text);
+        text-decoration: none;
+        padding: 6px 12px;
+        background: var(--bg);
+        border-radius: 20px;
+        transition: all 0.2s ease;
+    }
+    .toc-list li a:hover {
+        background: var(--primary);
+        color: white;
+        text-decoration: none;
+    }
+    @media (max-width: 600px) {
+        .toc-list { flex-direction: column; gap: 8px; }
+        .toc-list li a { display: block; text-align: center; }
+    }
+    
+    /* Local Guide Section */
+    .local-guide {
+        padding: 60px 0;
+        background: var(--card-bg);
+    }
+    .local-guide h2 {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+    .guide-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+    .guide-card {
+        background: var(--bg);
+        padding: 24px;
+        border-radius: 16px;
+    }
+    .guide-card h3 {
+        font-size: 1rem;
+        margin-bottom: 10px;
+        color: var(--text);
+    }
+    .guide-card p {
+        font-size: 0.9rem;
+        color: var(--text-light);
+        line-height: 1.6;
+    }
+    .guide-tips {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        padding: 30px;
+        border-radius: 16px;
+        color: white;
+    }
+    .guide-tips h3 {
+        margin-bottom: 16px;
+    }
+    .guide-tips ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .guide-tips li {
+        padding: 8px 0;
+        font-size: 0.95rem;
+        opacity: 0.95;
+    }
+    @media (max-width: 900px) {
+        .guide-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 500px) {
+        .guide-grid { grid-template-columns: 1fr; }
+    }
+    
+    /* Pricing Guide Section */
+    .pricing-guide {
+        padding: 60px 0;
+    }
+    .pricing-guide h2 {
+        text-align: center;
+        margin-bottom: 16px;
+    }
+    .pricing-intro {
+        text-align: center;
+        color: var(--text-light);
+        margin-bottom: 40px;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .pricing-table {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    .price-tier {
+        background: var(--card-bg);
+        padding: 30px 24px;
+        border-radius: 16px;
+        text-align: center;
+        border: 2px solid var(--border);
+    }
+    .price-tier.featured {
+        border-color: var(--primary);
+        transform: scale(1.05);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    }
+    .tier-label {
+        display: block;
+        font-weight: 700;
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+        color: var(--text);
+    }
+    .tier-range {
+        display: block;
+        font-size: 1.2rem;
+        margin-bottom: 12px;
+    }
+    .price-tier p {
+        font-size: 0.9rem;
+        color: var(--text-light);
+        line-height: 1.5;
+    }
+    .pricing-note {
+        text-align: center;
+        font-size: 0.9rem;
+        color: var(--text-light);
+        background: var(--bg);
+        padding: 16px;
+        border-radius: 8px;
+    }
+    @media (max-width: 768px) {
+        .pricing-table { grid-template-columns: 1fr; }
+        .price-tier.featured { transform: none; }
+    }
+    
+    /* Listings Grid - Mobile First (1 col mobile, 2 tablet, 3 desktop) */
+    .listings-grid-3 {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    @media (min-width: 540px) {
+        .listings-grid-3 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (min-width: 900px) {
+        .listings-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    }
+    
+    /* Related Categories - Cross Promotion */
+    .related-categories {
+        background: linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%);
+        padding: 40px 0;
+        border-top: 1px solid var(--border);
+    }
+    .related-categories h2 {
+        font-size: 1.5rem;
+        margin-bottom: 8px;
+        text-align: center;
+    }
+    .related-categories .section-intro {
+        text-align: center;
+        color: var(--text-light);
+        margin-bottom: 30px;
+    }
+    .related-category-block {
+        margin-bottom: 30px;
+    }
+    .related-category-block:last-child {
+        margin-bottom: 0;
+    }
+    .related-category-block h3 {
+        font-size: 1.2rem;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--primary);
+        display: inline-block;
+    }
+    
+    @media (max-width: 768px) {
+        .related-categories {
+            padding: 24px 0;
+        }
+        .related-categories h2 {
+            font-size: 1.25rem;
+        }
+        .related-category-block h3 {
+            font-size: 1rem;
+        }
+    }
+    
+    /* About Section */
+    .about-section {
+        background: var(--card-bg);
+        padding: 40px 0;
+    }
+    .about-section h2 {
+        font-size: 1.4rem;
+        margin-bottom: 16px;
+    }
+    .about-content {
+        color: var(--text-light);
+        line-height: 1.7;
+    }
+    .about-content p { margin-bottom: 14px; }
+    .about-content h2 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-top: 32px;
+        margin-bottom: 12px;
+        color: var(--text);
+        padding-top: 12px;
+        border-top: 1px solid rgba(0,0,0,0.06);
+    }
+    .about-content h2:first-child {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+    
+    /* Listings Section */
+    .listings-header {
+        margin-bottom: 16px;
+    }
+    
+    .listings-header h2 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+        color: var(--text);
+    }
+    
+    .listings-intro {
+        color: var(--text-light);
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+    
+    .listings-intro.fallback-notice {
+        background: linear-gradient(135deg, var(--primary-light, #f0f7ff) 0%, var(--bg) 100%);
+        padding: 12px 16px;
+        border-radius: 8px;
+        border-left: 3px solid var(--primary);
+        font-size: 0.9rem;
+    }
+    
+    .listings-intro.fallback-notice strong {
+        color: var(--primary);
+    }
+    
+    .section-intro {
+        color: var(--text-light);
+        margin-bottom: 25px;
+    }
+    .premium-section {
+        background: linear-gradient(135deg, #D4AF3710, #F4D03F10);
+    }
+    .cta-box {
+        background: linear-gradient(135deg, var(--primary)10, var(--secondary)10);
+        padding: 30px;
+        border-radius: 12px;
+        margin-top: 30px;
+        text-align: center;
+    }
+    .cta-box h3 {
+        margin-bottom: 10px;
+    }
+    .cta-box p {
+        margin-bottom: 20px;
+        color: var(--text-light);
+    }
+    .sitemap-links {
+        padding: 40px 0;
+        background: var(--bg);
+    }
+    .sitemap-links h2 {
+        font-size: 1.2rem;
+        margin-bottom: 20px;
+    }
+    .venue-links {
+        column-count: 3;
+        column-gap: 30px;
+        list-style: none;
+        padding: 0;
+    }
+    .venue-links li {
+        margin-bottom: 8px;
+        break-inside: avoid;
+    }
+    .venue-links a {
+        font-size: 13px;
+        color: var(--text-light);
+    }
+    .venue-links a:hover {
+        color: var(--primary);
+    }
+    @media (max-width: 768px) {
+        .venue-links {
+            column-count: 1;
+        }
+    }
+</style>
